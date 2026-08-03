@@ -57,7 +57,7 @@ export function StatusBadge({
       )}
     >
       {pending ? <IconClock /> : judged ? <IconSeal /> : null}
-      {status || "Unknown"}
+      {pending ? "Pending" : judged ? "Judged" : status || "Unknown"}
     </span>
   );
 }

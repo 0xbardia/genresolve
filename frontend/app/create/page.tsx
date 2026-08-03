@@ -2,10 +2,10 @@
 
 import { useWallet } from "@/lib/genlayer/WalletProvider";
 import { CreateClaimForm } from "@/components/CreateClaimForm";
-import { ConfigAlert, InfoAlert } from "@/components/ErrorAlert";
+import { ConfigAlert } from "@/components/ErrorAlert";
 
 export default function CreateClaimPage() {
-  const { network, contractAddress, isConnected } = useWallet();
+  const { network, contractAddress } = useWallet();
 
   return (
     <div className="mx-auto max-w-xl space-y-7 page-section">
@@ -17,25 +17,17 @@ export default function CreateClaimPage() {
         <p className="mt-2 text-sm leading-relaxed text-[var(--text-muted)] max-w-md">
           One primary statement for{" "}
           <span className="text-[var(--text-secondary)]">{network.shortName}</span>
-          . Optional evidence and stake. Judgment is triggered from the claim
-          page after creation.
+          . Optional evidence and stake. After create, judgment starts
+          automatically on the claim page (you can retry manually if needed).
         </p>
       </div>
 
       {!contractAddress && <ConfigAlert networkName={network.shortName} />}
 
-      {!isConnected && (
-        <InfoAlert
-          title="Wallet not connected"
-          message="You can draft the form first. Connect MetaMask or Rabby to submit."
-        />
-      )}
-
       <CreateClaimForm />
 
       <p className="text-xs leading-relaxed text-[var(--text-faint)] px-0.5">
-        Limits: claim ≤ 2,000 characters · evidence ≤ 8,000 · stake is
-        non-refundable in this MVP.
+        Limits: claim ≤ 2,000 characters · evidence ≤ 8,000 characters.
       </p>
     </div>
   );

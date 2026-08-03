@@ -82,7 +82,8 @@ function useInView<T extends HTMLElement>(once = true) {
           setVisible(false);
         }
       },
-      { threshold: 0.22, rootMargin: "0px 0px -8% 0px" }
+      // Early-ish reveal so entrances start before the user fully stops scrolling
+      { threshold: 0.12, rootMargin: "0px 0px -4% 0px" }
     );
     io.observe(el);
     return () => io.disconnect();
@@ -99,27 +100,40 @@ function Reveal({
   className,
   delay = 0,
   active = true,
+  /** Paint immediately (no opacity:0 first frame) — for hero LCP text/CTAs */
+  priority = false,
 }: {
   children: ReactNode;
   className?: string;
   delay?: number;
   active?: boolean;
+  priority?: boolean;
 }) {
-  // Defer is-in one frame so CSS transitions run on first paint.
-  const [ready, setReady] = useState(false);
+  // Priority content is visible from first paint; motion can still soft-settle.
+  const [ready, setReady] = useState(priority);
   useEffect(() => {
     if (!active) {
-      setReady(false);
+      if (!priority) setReady(false);
       return;
     }
+    if (priority) {
+      setReady(true);
+      return;
+    }
+    // Defer non-critical entrances one frame so first paint stays light.
     const id = requestAnimationFrame(() => setReady(true));
     return () => cancelAnimationFrame(id);
-  }, [active]);
+  }, [active, priority]);
 
   return (
     <div
-      className={cn("infra-reveal", ready && active && "is-in", className)}
-      style={{ transitionDelay: ready && active ? `${delay}ms` : "0ms" }}
+      className={cn(
+        "infra-reveal",
+        priority && "infra-reveal--priority",
+        ready && active && "is-in",
+        className
+      )}
+      style={{ transitionDelay: ready && active && !priority ? `${delay}ms` : "0ms" }}
     >
       {children}
     </div>
@@ -221,31 +235,52 @@ function WhyIcon({ kind }: { kind: "evidence" | "validators" | "recorded" }) {
 /* Hero live panel                                                            */
 /* -------------------------------------------------------------------------- */
 
-function HeroLivePanel({ reduceMotion }: { reduceMotion: boolean }) {
-  const [stage, setStage] = useState(0);
+function HeroLivePanel({
+  reduceMotion,
+  active,
+  playOnce,
+}: {
+  reduceMotion: boolean;
+  /** Tab visible + panel allowed to animate */
+  active: boolean;
+  /** Mobile / low-power: run sequence once, no infinite loop */
+  playOnce: boolean;
+}) {
+  const [stage, setStage] = useState(reduceMotion ? 3 : 0);
 
   useEffect(() => {
     if (reduceMotion) {
       setStage(3);
       return;
     }
-    setStage(0);
-    const timers = [
-      window.setTimeout(() => setStage(1), 1400),
-      window.setTimeout(() => setStage(2), 2800),
-      window.setTimeout(() => setStage(3), 4400),
-    ];
-    const loop = window.setInterval(() => {
-      setStage(0);
-      window.setTimeout(() => setStage(1), 1400);
-      window.setTimeout(() => setStage(2), 2800);
-      window.setTimeout(() => setStage(3), 4400);
-    }, 7000);
-    return () => {
-      timers.forEach(clearTimeout);
-      clearInterval(loop);
+    // Pause timers when tab hidden — avoids background CPU and timer pile-up
+    if (!active) return;
+
+    let cancelled = false;
+    const timers = new Set<number>();
+    const later = (fn: () => void, ms: number) => {
+      const id = window.setTimeout(() => {
+        timers.delete(id);
+        if (!cancelled) fn();
+      }, ms);
+      timers.add(id);
     };
-  }, [reduceMotion]);
+
+    const sequence = () => {
+      setStage(0);
+      later(() => setStage(1), 1600);
+      later(() => setStage(2), 3400);
+      later(() => setStage(3), 5400);
+      // Longer dwell on sealed state; fewer loops = less main-thread churn
+      if (!playOnce) later(sequence, 11_000);
+    };
+
+    sequence();
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+  }, [reduceMotion, active, playOnce]);
 
   return (
     <div className="infra-live-panel" aria-live="polite">
@@ -320,9 +355,9 @@ function HeroLivePanel({ reduceMotion }: { reduceMotion: boolean }) {
 export default function LandingPage() {
   const reduceMotion = useReducedMotion();
   const stageRef = useRef<HTMLDivElement>(null);
-  /** Tab hidden → pause any residual ambient CSS. */
+  /** Tab hidden → pause ambient CSS + hero stage timers. */
   const [pageVisible, setPageVisible] = useState(true);
-  /** Low-power / mobile / save-data → static atmosphere only. */
+  /** Low-power / mobile / save-data → static atmosphere, one-shot loops. */
   const [liteAmbient, setLiteAmbient] = useState(false);
 
   const why = useInView<HTMLElement>();
@@ -330,8 +365,12 @@ export default function LandingPage() {
   const mesh = useInView<HTMLElement>();
   const finality = useInView<HTMLElement>();
   const cta = useInView<HTMLElement>();
+  /** Only drive hero stage machine while the panel is on-screen. */
+  const heroPanel = useInView<HTMLDivElement>(false);
 
   const [pipeActive, setPipeActive] = useState(0);
+  /** Enable continuous field motion only after first paint (desktop). */
+  const [fieldReady, setFieldReady] = useState(false);
 
   useEffect(() => {
     const onVis = () => setPageVisible(document.visibilityState === "visible");
@@ -371,6 +410,45 @@ export default function LandingPage() {
     };
   }, [reduceMotion]);
 
+  // Kick ambient field motion after first paint — never block hydration/LCP.
+  useEffect(() => {
+    if (reduceMotion) return;
+    let cancelled = false;
+    const arm = () => {
+      if (cancelled) return;
+      setFieldReady(true);
+    };
+    // Double-rAF ≈ after paint; idle fallback for slow devices.
+    let idleId: number | undefined;
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const ric = (
+          window as Window & {
+            requestIdleCallback?: (
+              cb: () => void,
+              opts?: { timeout: number }
+            ) => number;
+          }
+        ).requestIdleCallback;
+        if (typeof ric === "function") {
+          idleId = ric(arm, { timeout: 400 });
+        } else {
+          arm();
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      if (idleId !== undefined) {
+        const cic = (
+          window as Window & { cancelIdleCallback?: (id: number) => void }
+        ).cancelIdleCallback;
+        cic?.(idleId);
+      }
+    };
+  }, [reduceMotion]);
+
   useEffect(() => {
     if (!pipeline.visible) return;
     if (reduceMotion) {
@@ -379,11 +457,14 @@ export default function LandingPage() {
     }
     setPipeActive(0);
     const ids: number[] = [];
+    // Slightly snappier staggered fill — fewer long-running transition frames
     PIPELINE.forEach((_, i) => {
-      ids.push(window.setTimeout(() => setPipeActive(i + 1), 280 + i * 420));
+      ids.push(window.setTimeout(() => setPipeActive(i + 1), 200 + i * 360));
     });
     return () => ids.forEach(clearTimeout);
   }, [pipeline.visible, reduceMotion]);
+
+  const motionLite = reduceMotion || liteAmbient;
 
   return (
     <div
@@ -391,25 +472,30 @@ export default function LandingPage() {
       className={cn(
         "infra-landing infra-landing--bleed",
         !pageVisible && "infra-landing--paused",
-        (reduceMotion || liteAmbient) && "infra-landing--static"
+        motionLite && "infra-landing--static",
+        fieldReady && !motionLite && "infra-landing--field-live"
       )}
     >
       {/*
-        Single paint layer atmosphere (no child blobs, no blur filters,
-        no pointer parallax, no full-viewport mask animation).
+        Resolution field — structured lattice + sparse signal nodes + slow scan.
+        CSS-only, 3 thin layers, no blur stack. Static on mobile / reduced-motion.
       */}
-      <div className="infra-aurora" aria-hidden />
+      <div className="infra-field" aria-hidden>
+        <div className="infra-field-base" />
+        <div className="infra-field-lattice" />
+        <div className="infra-field-scan" />
+      </div>
 
       {/* ─── HERO: open left copy + framed live panel only ─── */}
       <section className="infra-hero">
         <div className="page-shell infra-hero-inner">
           <div className="infra-hero-grid">
-            {/* Left: no card / no shell — open on background */}
+            {/* Left: critical copy paints immediately (priority reveals) */}
             <div className="infra-hero-copy">
-              <Reveal active delay={80}>
+              <Reveal priority active>
                 <SectionLabel>GenLayer-native resolution</SectionLabel>
               </Reveal>
-              <Reveal active delay={180}>
+              <Reveal priority active>
                 <h1 className="infra-hero-title">
                   Claims enter as language.
                   <br />
@@ -418,14 +504,14 @@ export default function LandingPage() {
                   </span>
                 </h1>
               </Reveal>
-              <Reveal active delay={320}>
+              <Reveal priority active>
                 <p className="infra-hero-lede">
                   GenResolve turns natural-language claims into permanent
-                  on-chain verdicts — through evidence, independent AI
-                  validators, and cryptographic finality.
+                  on-chain verdicts — with evidence, independent AI review, and
+                  a public result anyone can verify.
                 </p>
               </Reveal>
-              <Reveal active delay={460}>
+              <Reveal priority active>
                 <div className="infra-hero-ctas">
                   <Link href="/create" className="landing-cta-primary">
                     Create first claim
@@ -435,16 +521,23 @@ export default function LandingPage() {
                   </Link>
                 </div>
               </Reveal>
-              <Reveal active delay={580}>
-                <p className="infra-hero-meta mono">
-                  Studionet · Bradbury · Equivalence Principle
+              <Reveal priority active>
+                <p className="infra-hero-meta">
+                  GenLayer testnets · Studionet &amp; Bradbury · Verdicts sealed
+                  on-chain
                 </p>
               </Reveal>
             </div>
 
-            {/* Right: only framed surface */}
-            <Reveal active delay={400} className="infra-hero-panel-wrap">
-              <HeroLivePanel reduceMotion={reduceMotion} />
+            {/* Right: panel may soft-enter after paint */}
+            <Reveal active delay={120} className="infra-hero-panel-wrap">
+              <div ref={heroPanel.ref}>
+                <HeroLivePanel
+                  reduceMotion={reduceMotion}
+                  active={pageVisible && (heroPanel.visible || !liteAmbient)}
+                  playOnce={liteAmbient}
+                />
+              </div>
             </Reveal>
           </div>
         </div>
@@ -568,7 +661,12 @@ export default function LandingPage() {
         </Reveal>
 
         <div
-          className={cn("infra-mesh", mesh.visible && "is-live")}
+          className={cn(
+            "infra-mesh",
+            mesh.visible && "is-live",
+            // One-shot entrances only — no continuous pulse rings on constrained devices
+            motionLite && "infra-mesh--lite"
+          )}
           aria-hidden={!mesh.visible}
         >
           <div className="infra-mesh-core">

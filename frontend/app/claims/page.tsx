@@ -29,13 +29,17 @@ export default function ClaimsPage() {
     isFetching,
   } = useClaims(offset, PAGE_SIZE);
 
-  const totalPages = Math.max(1, Math.ceil((total ?? 0) / PAGE_SIZE));
+  const totalCount = typeof total === "number" ? total : 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE) || 1);
+  const pageLen = claims?.length ?? 0;
+  const rangeStart = totalCount === 0 || pageLen === 0 ? 0 : offset + 1;
+  const rangeEnd = totalCount === 0 ? 0 : offset + pageLen;
 
   return (
     <div className="space-y-8 page-section">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="eyebrow">Public ledger</p>
+          <p className="eyebrow">Browse</p>
           <h1 className="display-title mt-2 text-2xl sm:text-3xl">Claims</h1>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
             {network.shortName}
@@ -54,7 +58,7 @@ export default function ClaimsPage() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="btn btn-secondary btn-sm"
+            className="btn btn-secondary min-h-11 min-w-11"
             onClick={() => void refetch()}
             disabled={isFetching}
           >
@@ -67,7 +71,7 @@ export default function ClaimsPage() {
               "Refresh"
             )}
           </button>
-          <Link href="/create" className="btn btn-primary btn-sm">
+          <Link href="/create" className="btn btn-primary min-h-11">
             New claim
           </Link>
         </div>
@@ -76,14 +80,37 @@ export default function ClaimsPage() {
       {!contractAddress && <ConfigAlert networkName={network.shortName} />}
 
       {isLoading && <ClaimListSkeleton />}
-      {isError && <ErrorAlert message={getErrorMessage(error)} />}
+
+      {isError && (
+        <div className="space-y-3">
+          <ErrorAlert
+            title="Could not load claims"
+            message={getErrorMessage(error)}
+          />
+          <button
+            type="button"
+            className="btn btn-secondary min-h-11"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+          >
+            {isFetching ? (
+              <>
+                <span className="spinner" aria-hidden />
+                Retrying…
+              </>
+            ) : (
+              "Retry"
+            )}
+          </button>
+        </div>
+      )}
 
       {!isLoading && !isError && contractAddress && (
         <>
           {!claims?.length ? (
             <EmptyState
               title="No claims on this network"
-              description="Submit a claim to start the ledger, or switch network if your deployment is elsewhere."
+              description="Submit a claim to get started, or switch network if your deployment is elsewhere."
               action={
                 <Link href="/create" className="btn btn-primary">
                   Create claim
@@ -98,26 +125,34 @@ export default function ClaimsPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-3 pt-1">
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={page <= 0}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-            >
-              Previous
-            </button>
-            <span className="text-xs tabular-nums text-[var(--text-muted)]">
-              Page {page + 1} / {totalPages}
-            </span>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={page + 1 >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-1">
+            <p className="text-xs tabular-nums text-[var(--text-muted)] order-2 sm:order-1">
+              {totalCount === 0
+                ? "No claims to show"
+                : `Showing ${rangeStart}–${rangeEnd} of ${totalCount}`}
+              <span className="text-[var(--text-faint)]">
+                {" "}
+                · Page {page + 1} / {totalPages}
+              </span>
+            </p>
+            <div className="flex items-center gap-2 order-1 sm:order-2">
+              <button
+                type="button"
+                className="btn btn-secondary min-h-11 min-w-[5.5rem]"
+                disabled={page <= 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary min-h-11 min-w-[5.5rem]"
+                disabled={page + 1 >= totalPages || totalCount === 0}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </>
       )}

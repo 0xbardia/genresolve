@@ -8,6 +8,11 @@ and the network judges each claim as True, False, or Unverifiable.
 
 Note: Python class remains `TruthLedger` so existing GenLayer deployments
 keep a stable identity. Product name is GenResolve. Methods unchanged.
+
+SCOPE NOTE: Phase 1 — ledger + judgment only. No stake payout / slashing /
+withdrawal logic exists yet. Staked GEN accumulates in the contract with no
+redistribution path. This is an intentional Phase-1 limitation, not a bug —
+flag it before mainnet deploy if funds are expected to move.
 """
 
 import json
@@ -37,144 +42,78 @@ MAX_PAGE_CHARS = 6000
 CONFIDENCE_TOLERANCE = 15
 # Safety cap for list pagination.
 MAX_LIST_LIMIT = 50
-# Input size limits (create_claim).
+# Input size limits (create_claim) — DoS / storage-bloat guard.
 MAX_CLAIM_TEXT_LEN = 2000
 MAX_EVIDENCE_LEN = 8000
 
 
 # ---------------------------------------------------------------------------
-# Storage model
+# Module-level helpers (pure functions; no self).
+#
+# leader_fn / validator_fn are serialized with cloudpickle and shipped to
+# validators by run_nondet_unsafe. They must NOT capture `self` (the whole
+# contract instance + storage) in their closures — that breaks consensus
+# serialization. Everything the nondet block needs is passed in explicitly.
 # ---------------------------------------------------------------------------
 
 
-@allow_storage
-@dataclass
-class Claim:
-    """Single claim and its permanent judgment record."""
+def _extract_urls(text: str) -> list[str]:
+    """Find http(s) URLs in evidence text (order-preserving, unique)."""
+    if not text:
+        return []
+    found = re.findall(r"https?://[^\s<>\"')\]]+", text)
+    seen: set[str] = set()
+    urls: list[str] = []
+    for raw in found:
+        url = raw.rstrip(".,;:)")
+        if url not in seen:
+            seen.add(url)
+            urls.append(url)
+        if len(urls) >= MAX_EVIDENCE_URLS:
+            break
+    return urls
 
-    id: u256
-    creator: Address
-    claim_text: str
-    evidence: str
-    stake: u256
-    status: str  # Pending | Judged
-    verdict: str  # True | False | Unverifiable | "" while pending
-    reasoning: str
-    confidence: u256  # 0–100; 0 while pending
-    created_at: str  # ISO-8601 transaction timestamp
 
-
-class TruthLedger(gl.Contract):
+def _fetch_evidence_pages(urls: list[str]) -> list[dict]:
     """
-    GenResolve Intelligent Contract (class name TruthLedger for compatibility).
-
-    Storage layout:
-      - owner: Address                — deployer wallet
-      - claims: TreeMap[u256, Claim]  — primary record by claim id
-      - claim_count: u256             — next id / total claims
+    Fetch readable text from evidence URLs (non-deterministic only).
+    Returns stable fields only (url + truncated body) for consensus.
     """
-
-    owner: Address
-    claims: TreeMap[u256, Claim]
-    claim_count: u256
-
-    def __init__(self):
-        self.owner = gl.message.sender_address
-        self.claim_count = u256(0)
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _require_non_empty_claim(self, claim_text: str) -> None:
-        if claim_text is None or str(claim_text).strip() == "":
-            raise Exception("[EXPECTED] claim_text must be a non-empty string")
-
-    def _require_claim_lengths(self, claim_text: str, evidence: str) -> None:
-        """Reject oversized claim_text / evidence before storage."""
-        claim_len = len(claim_text)
-        if claim_len > MAX_CLAIM_TEXT_LEN:
-            raise Exception(
-                f"[EXPECTED] claim_text exceeds maximum length "
-                f"({claim_len} > {MAX_CLAIM_TEXT_LEN} characters)"
+    pages: list[dict] = []
+    for url in urls:
+        try:
+            body = gl.nondet.web.render(url, mode="text")
+            if body is None:
+                body = ""
+            if not isinstance(body, str):
+                body = str(body)
+            if len(body) > MAX_PAGE_CHARS:
+                body = body[:MAX_PAGE_CHARS] + "\n...[truncated]"
+            pages.append({"url": url, "body": body, "error": ""})
+        except Exception as e:
+            # Keep a stable structure even on fetch failure.
+            pages.append(
+                {
+                    "url": url,
+                    "body": "",
+                    "error": f"fetch_failed: {type(e).__name__}",
+                }
             )
-        evidence_len = len(evidence)
-        if evidence_len > MAX_EVIDENCE_LEN:
-            raise Exception(
-                f"[EXPECTED] evidence exceeds maximum length "
-                f"({evidence_len} > {MAX_EVIDENCE_LEN} characters)"
-            )
+    return pages
 
-    def _claim_to_dict(self, claim: Claim) -> dict:
-        """Serialize a Claim for view methods (Address → hex string)."""
-        return {
-            "id": int(claim.id),
-            "creator": claim.creator.as_hex,
-            "claim_text": claim.claim_text,
-            "evidence": claim.evidence,
-            "stake": int(claim.stake),
-            "status": claim.status,
-            "verdict": claim.verdict,
-            "reasoning": claim.reasoning,
-            "confidence": int(claim.confidence),
-            "created_at": claim.created_at,
-        }
 
-    def _extract_urls(self, text: str) -> list[str]:
-        """Find http(s) URLs in evidence text (order-preserving, unique)."""
-        if not text:
-            return []
-        found = re.findall(r"https?://[^\s<>\"')\]]+", text)
-        seen: set[str] = set()
-        urls: list[str] = []
-        for raw in found:
-            url = raw.rstrip(".,;:)")
-            if url not in seen:
-                seen.add(url)
-                urls.append(url)
-            if len(urls) >= MAX_EVIDENCE_URLS:
-                break
-        return urls
+def _build_judgment_prompt(
+    claim_text: str, evidence: str, web_pages: list[dict]
+) -> str:
+    """
+    High-quality, injection-resistant judgment prompt.
 
-    def _fetch_evidence_pages(self, urls: list[str]) -> list[dict]:
-        """
-        Fetch readable text from evidence URLs (non-deterministic only).
-        Returns stable fields only (url + truncated body) for consensus.
-        """
-        pages: list[dict] = []
-        for url in urls:
-            try:
-                body = gl.nondet.web.render(url, mode="text")
-                if body is None:
-                    body = ""
-                if not isinstance(body, str):
-                    body = str(body)
-                if len(body) > MAX_PAGE_CHARS:
-                    body = body[:MAX_PAGE_CHARS] + "\n...[truncated]"
-                pages.append({"url": url, "body": body, "error": ""})
-            except Exception as e:
-                # Keep a stable structure even on fetch failure.
-                pages.append(
-                    {
-                        "url": url,
-                        "body": "",
-                        "error": f"fetch_failed: {type(e).__name__}",
-                    }
-                )
-        return pages
-
-    def _build_judgment_prompt(
-        self, claim_text: str, evidence: str, web_pages: list[dict]
-    ) -> str:
-        """
-        High-quality, injection-resistant judgment prompt.
-
-        User-supplied claim_text and evidence are isolated in clearly marked
-        data sections and must be treated as untrusted content, not as
-        instructions to the model.
-        """
-        web_blob = json.dumps(web_pages, ensure_ascii=False)
-        return f"""You are an impartial fact-checker for GenResolve, a public on-chain claim ledger.
+    User-supplied claim_text and evidence are isolated in clearly marked
+    data sections and must be treated as untrusted content, not as
+    instructions to the model.
+    """
+    web_blob = json.dumps(web_pages, ensure_ascii=False)
+    return f"""You are an impartial fact-checker for GenResolve, a public on-chain claim ledger.
 
 Your job: judge ONE claim as True, False, or Unverifiable using only the claim, optional evidence text, and any fetched web page text provided below.
 
@@ -222,45 +161,136 @@ Return ONLY valid JSON with exactly these fields:
 </web_evidence>
 """
 
-    def _normalize_judgment(self, raw: dict) -> dict:
-        """Validate and normalize LLM JSON into a canonical judgment dict."""
-        if not isinstance(raw, dict):
-            raise Exception("[EXPECTED] judgment response must be a JSON object")
 
-        verdict = str(raw.get("verdict", "")).strip()
-        # Accept common case variants but store canonical form.
-        verdict_map = {
-            "true": VERDICT_TRUE,
-            "false": VERDICT_FALSE,
-            "unverifiable": VERDICT_UNVERIFIABLE,
-        }
-        if verdict in VALID_VERDICTS:
-            pass
-        elif verdict.lower() in verdict_map:
-            verdict = verdict_map[verdict.lower()]
-        else:
-            raise Exception(
-                f"[EXPECTED] invalid verdict '{verdict}'; must be True, False, or Unverifiable"
+def _normalize_judgment(raw) -> dict:
+    """Validate and normalize LLM JSON into a canonical judgment dict."""
+    if not isinstance(raw, dict):
+        raise gl.vm.UserError("[EXPECTED] judgment response must be a JSON object")
+
+    verdict = str(raw.get("verdict", "")).strip()
+    verdict_map = {
+        "true": VERDICT_TRUE,
+        "false": VERDICT_FALSE,
+        "unverifiable": VERDICT_UNVERIFIABLE,
+    }
+    if verdict in VALID_VERDICTS:
+        pass
+    elif verdict.lower() in verdict_map:
+        verdict = verdict_map[verdict.lower()]
+    else:
+        raise gl.vm.UserError(
+            f"[EXPECTED] invalid verdict '{verdict}'; must be True, False, or Unverifiable"
+        )
+
+    reasoning = str(raw.get("reasoning", "")).strip()
+    if len(reasoning) > 500:
+        reasoning = reasoning[:500]
+
+    conf_raw = raw.get("confidence", 0)
+    try:
+        confidence = int(conf_raw)
+    except (TypeError, ValueError):
+        raise gl.vm.UserError("[EXPECTED] confidence must be an integer 0-100")
+    if confidence < 0:
+        confidence = 0
+    if confidence > 100:
+        confidence = 100
+
+    return {
+        "verdict": verdict,
+        "reasoning": reasoning,
+        "confidence": confidence,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Storage model
+# ---------------------------------------------------------------------------
+
+
+@allow_storage
+@dataclass
+class Claim:
+    """Single claim and its permanent judgment record."""
+
+    id: u256
+    creator: Address
+    claim_text: str
+    evidence: str
+    stake: u256
+    status: str  # Pending | Judged
+    verdict: str  # True | False | Unverifiable | "" while pending
+    reasoning: str
+    confidence: u256  # 0–100; 0 while pending
+    created_at: str  # ISO-8601 transaction timestamp (from gl.message.datetime)
+
+
+class TruthLedger(gl.Contract):
+    """
+    GenResolve Intelligent Contract (class name TruthLedger for compatibility).
+
+    Storage layout:
+      - owner: Address                — deployer wallet (record only; no
+                                         privileged methods currently gated
+                                         on it — permissionless by design)
+      - claims: TreeMap[u256, Claim]  — primary record by claim id
+      - claim_count: u256             — next id / total claims
+    """
+
+    owner: Address
+    claims: TreeMap[u256, Claim]
+    claim_count: u256
+
+    def __init__(self):
+        self.owner = gl.message.sender_address
+        self.claim_count = u256(0)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _require_non_empty_claim(self, claim_text: str) -> None:
+        if claim_text is None or str(claim_text).strip() == "":
+            raise gl.vm.UserError("[EXPECTED] claim_text must be a non-empty string")
+
+    def _require_claim_lengths(self, claim_text: str, evidence: str) -> None:
+        """Reject oversized claim_text / evidence before storage."""
+        claim_len = len(claim_text)
+        if claim_len > MAX_CLAIM_TEXT_LEN:
+            raise gl.vm.UserError(
+                f"[EXPECTED] claim_text exceeds maximum length "
+                f"({claim_len} > {MAX_CLAIM_TEXT_LEN} characters)"
+            )
+        evidence_len = len(evidence)
+        if evidence_len > MAX_EVIDENCE_LEN:
+            raise gl.vm.UserError(
+                f"[EXPECTED] evidence exceeds maximum length "
+                f"({evidence_len} > {MAX_EVIDENCE_LEN} characters)"
             )
 
-        reasoning = str(raw.get("reasoning", "")).strip()
-        if len(reasoning) > 500:
-            reasoning = reasoning[:500]
-
-        conf_raw = raw.get("confidence", 0)
+    def _require_valid_claim_id(self, claim_id: int) -> u256:
+        """Coerce + validate a caller-supplied claim id before storage lookup."""
         try:
-            confidence = int(conf_raw)
+            cid_int = int(claim_id)
         except (TypeError, ValueError):
-            raise Exception("[EXPECTED] confidence must be an integer 0-100")
-        if confidence < 0:
-            confidence = 0
-        if confidence > 100:
-            confidence = 100
+            raise gl.vm.UserError("[EXPECTED] claim_id must be an integer")
+        if cid_int < 0:
+            raise gl.vm.UserError("[EXPECTED] claim_id must be non-negative")
+        return u256(cid_int)
 
+    def _claim_to_dict(self, claim: Claim) -> dict:
+        """Serialize a Claim for view methods (Address → hex string)."""
         return {
-            "verdict": verdict,
-            "reasoning": reasoning,
-            "confidence": confidence,
+            "id": int(claim.id),
+            "creator": claim.creator.as_hex,
+            "claim_text": claim.claim_text,
+            "evidence": claim.evidence,
+            "stake": int(claim.stake),
+            "status": claim.status,
+            "verdict": claim.verdict,
+            "reasoning": claim.reasoning,
+            "confidence": int(claim.confidence),
+            "created_at": claim.created_at,
         }
 
     def _run_judgment(self, claim_text: str, evidence: str) -> dict:
@@ -271,19 +301,22 @@ Return ONLY valid JSON with exactly these fields:
         accept only when verdict matches exactly and confidence is within
         CONFIDENCE_TOLERANCE. Reasoning text is stored from the leader but
         not compared (subjective wording).
+
+        NOTE: leader_fn/validator_fn must not capture `self` — they are
+        cloudpickled and shipped to validators. All inputs (plain decoded
+        values) are captured explicitly; all helpers are module-level.
         """
-        # Capture plain strings for use inside the nondet block (no storage).
         claim_text_m = str(claim_text)
         evidence_m = str(evidence) if evidence is not None else ""
-        urls = self._extract_urls(evidence_m)
+        urls = _extract_urls(evidence_m)
 
         def leader_fn() -> dict:
-            web_pages = self._fetch_evidence_pages(urls)
-            prompt = self._build_judgment_prompt(claim_text_m, evidence_m, web_pages)
+            web_pages = _fetch_evidence_pages(urls)
+            prompt = _build_judgment_prompt(claim_text_m, evidence_m, web_pages)
             raw = gl.nondet.exec_prompt(prompt, response_format="json")
             if isinstance(raw, str):
                 raw = json.loads(raw)
-            return self._normalize_judgment(raw)
+            return _normalize_judgment(raw)
 
         def validator_fn(leader_result) -> bool:
             # Must be a successful return; errors are not trusted.
@@ -298,11 +331,9 @@ Return ONLY valid JSON with exactly these fields:
             except Exception:
                 return False
 
-            # Decision field: exact verdict match required.
             if leader_data.get("verdict") != validator_data.get("verdict"):
                 return False
 
-            # Numeric tolerance on confidence.
             try:
                 lc = int(leader_data.get("confidence", -1))
                 vc = int(validator_data.get("confidence", -1))
@@ -311,7 +342,6 @@ Return ONLY valid JSON with exactly these fields:
             if abs(lc - vc) > CONFIDENCE_TOLERANCE:
                 return False
 
-            # Basic schema sanity (does not replace independent re-run above).
             if leader_data.get("verdict") not in VALID_VERDICTS:
                 return False
             if not (0 <= lc <= 100):
@@ -320,9 +350,9 @@ Return ONLY valid JSON with exactly these fields:
             return True
 
         # Custom leader/validator pattern (official Equivalence Principle).
-        # run_nondet_unsafe: validator exceptions count as Disagree.
+        # run_nondet_unsafe: validator exceptions/False both count as Disagree.
         result = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
-        return self._normalize_judgment(result)
+        return _normalize_judgment(result)
 
     # ------------------------------------------------------------------
     # Write methods
@@ -343,17 +373,19 @@ Return ONLY valid JSON with exactly these fields:
         if evidence is None:
             evidence = ""
 
-        # Normalize before length checks so stored bytes match validation.
         claim_text_n = str(claim_text).strip()
         evidence_n = str(evidence)
         self._require_claim_lengths(claim_text_n, evidence_n)
 
         claim_id = self.claim_count
-        created_at = ""
-        try:
-            created_at = gl.vm.get_timestamp().isoformat()
-        except Exception:
-            created_at = ""
+
+        # gl.message.datetime is the VM-provided transaction timestamp — a
+        # plain string, identical across leader and every validator for this
+        # tx, since it comes from message data rather than each node's wall
+        # clock. This replaces both the old get_timestamp()-with-fallback
+        # pattern and a wall-clock datetime.now() call, either of which is
+        # either brittle or non-deterministic.
+        created_at = gl.message_raw["datetime"]
 
         claim = Claim(
             id=claim_id,
@@ -377,20 +409,20 @@ Return ONLY valid JSON with exactly these fields:
         """
         Trigger AI consensus judgment for a Pending claim.
 
-        After successful consensus, status becomes Judged and
+        Permissionless by design: any address may trigger judgment of any
+        Pending claim. After successful consensus, status becomes Judged and
         verdict / reasoning / confidence are permanently stored.
         """
-        cid = u256(int(claim_id))
+        cid = self._require_valid_claim_id(claim_id)
         if cid not in self.claims:
-            raise Exception(f"[EXPECTED] claim {claim_id} does not exist")
+            raise gl.vm.UserError(f"[EXPECTED] claim {claim_id} does not exist")
 
         claim = self.claims[cid]
         if claim.status != STATUS_PENDING:
-            raise Exception(
+            raise gl.vm.UserError(
                 f"[EXPECTED] claim {claim_id} is already {claim.status}; only Pending claims can be judged"
             )
 
-        # Copy inputs out of storage for the nondet block.
         claim_text = claim.claim_text
         evidence = claim.evidence
 
@@ -411,9 +443,9 @@ Return ONLY valid JSON with exactly these fields:
     @gl.public.view
     def get_claim(self, claim_id: int) -> dict:
         """Return a single claim by id (raises if missing)."""
-        cid = u256(int(claim_id))
+        cid = self._require_valid_claim_id(claim_id)
         if cid not in self.claims:
-            raise Exception(f"[EXPECTED] claim {claim_id} does not exist")
+            raise gl.vm.UserError(f"[EXPECTED] claim {claim_id} does not exist")
         return self._claim_to_dict(self.claims[cid])
 
     @gl.public.view

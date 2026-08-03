@@ -23,7 +23,8 @@ export function Header() {
           <div className="flex min-w-0 items-center gap-5">
             <Link
               href={isLanding ? "/" : "/home"}
-              className="group flex items-center gap-2.5 shrink-0"
+              className="group flex items-center gap-2.5 shrink-0 min-h-11"
+              aria-label={isLanding ? "GenResolve home" : "GenResolve dashboard"}
             >
               <span className="brand-mark transition-transform duration-200 group-hover:scale-[1.03]">
                 GR
@@ -58,10 +59,13 @@ export function Header() {
           <div className="flex flex-wrap items-center justify-end gap-2">
             {isLanding ? (
               <>
-                <Link href="/home" className="btn btn-ghost btn-sm hidden sm:inline-flex">
+                <Link
+                  href="/home"
+                  className="btn btn-ghost btn-sm min-h-11 hidden sm:inline-flex"
+                >
                   Open app
                 </Link>
-                <Link href="/create" className="btn btn-primary btn-sm">
+                <Link href="/create" className="btn btn-primary btn-sm min-h-11">
                   Create claim
                 </Link>
               </>
@@ -86,9 +90,9 @@ export function Header() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "rounded-full px-3.5 py-1.5 text-sm font-medium shrink-0 border border-transparent",
+                    "rounded-full px-3.5 py-2.5 min-h-11 text-sm font-medium shrink-0 border border-transparent inline-flex items-center",
                     active
-                      ? "bg-[rgba(139,124,246,0.14)] text-[var(--violet-bright)] border-[rgba(139,124,246,0.22)]"
+                      ? "bg-[rgba(139,124,246,0.18)] text-[var(--violet-bright)] border-[rgba(139,124,246,0.3)] font-semibold"
                       : "text-[var(--text-muted)]"
                   )}
                 >

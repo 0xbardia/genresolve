@@ -9,17 +9,22 @@ export function NetworkSwitcher() {
 
   return (
     <div className="flex flex-col items-stretch sm:items-end gap-1">
-      <div className="network-switch" role="group" aria-label="Select network">
+      <div
+        className="network-switch"
+        role="group"
+        aria-label="App network"
+      >
         {NETWORK_LIST.map((n) => {
           const active = n.id === networkId;
           return (
             <button
               key={n.id}
               type="button"
-              className="network-option"
+              className="network-option min-h-11"
               data-active={active ? "true" : "false"}
               onClick={() => void setNetworkId(n.id as NetworkId)}
               aria-pressed={active}
+              aria-label={`${n.shortName} network${active ? ", selected" : ""}`}
             >
               <span className="net-dot" aria-hidden />
               {n.shortName}
@@ -29,7 +34,7 @@ export function NetworkSwitcher() {
       </div>
       {isConnected && !isOnCorrectNetwork && (
         <span className="text-[10px] font-medium text-[var(--gold)] tracking-wide px-0.5">
-          Wallet on wrong chain
+          Wallet on a different chain
         </span>
       )}
     </div>

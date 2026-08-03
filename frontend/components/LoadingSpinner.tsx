@@ -60,9 +60,15 @@ export function EmptyState({
 
 export function ClaimListSkeleton() {
   return (
-    <div className="grid gap-3" aria-hidden>
+    <div
+      className="grid gap-3"
+      role="status"
+      aria-live="polite"
+      aria-label="Loading claims"
+    >
+      <span className="sr-only">Loading claims…</span>
       {[0, 1, 2].map((i) => (
-        <div key={i} className="glass-card p-5 space-y-3">
+        <div key={i} className="glass-card p-5 space-y-3" aria-hidden>
           <div className="flex gap-2">
             <div className="skeleton w-16" />
             <div className="skeleton w-20" />

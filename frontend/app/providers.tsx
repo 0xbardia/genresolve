@@ -24,14 +24,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <WalletProvider>
         {children}
         <Toaster
-          position="top-right"
+          position="top-center"
           theme="dark"
           richColors
           closeButton
+          offset={72}
           toastOptions={{
+            className: "genresolve-toast",
             style: {
-              background: "rgba(14, 16, 24, 0.95)",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(14, 16, 24, 0.96)",
+              border: "1px solid rgba(255,255,255,0.12)",
               color: "#f3f4f8",
               backdropFilter: "blur(12px)",
               boxShadow: "0 16px 48px rgba(0,0,0,0.45)",

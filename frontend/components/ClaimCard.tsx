@@ -3,15 +3,17 @@
 import Link from "next/link";
 import type { Claim } from "@/lib/contracts/types";
 import { StatusBadge, VerdictBadge } from "@/components/StatusBadge";
-import { formatWeiToGen, shortAddress } from "@/lib/utils";
+import { formatDisplayDate, formatWeiToGen, shortAddress } from "@/lib/utils";
 
 export function ClaimCard({ claim }: { claim: Claim }) {
   const judged = claim.status === "Judged";
+  const when = claim.created_at ? formatDisplayDate(claim.created_at) : null;
 
   return (
     <Link
       href={`/claims/${claim.id}`}
       className="glass-card glass-card-interactive block p-5 sm:p-[1.35rem]"
+      aria-label={`Claim ${claim.id}${judged ? `, ${claim.verdict}` : ", needs judgment"}`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0 flex-1 space-y-3">
@@ -26,8 +28,12 @@ export function ClaimCard({ claim }: { claim: Claim }) {
           <p className="claim-text line-clamp-3">“{claim.claim_text}”</p>
 
           <div className="claim-meta">
-            <span>{shortAddress(claim.creator)}</span>
-            {claim.created_at ? <span>{claim.created_at}</span> : null}
+            <span title={claim.creator}>{shortAddress(claim.creator)}</span>
+            {when ? (
+              <time dateTime={claim.created_at} title={claim.created_at}>
+                {when}
+              </time>
+            ) : null}
             <span>{formatWeiToGen(claim.stake)} GEN</span>
           </div>
         </div>
@@ -56,7 +62,7 @@ export function ClaimCard({ claim }: { claim: Claim }) {
           ) : (
             <span className="meta-pill text-[var(--gold)] border-[rgba(230,192,105,0.25)]">
               <span className="live-dot !bg-[var(--gold)] !shadow-[0_0_8px_var(--gold)]" />
-              Awaiting judgment
+              Needs judgment
             </span>
           )}
         </div>

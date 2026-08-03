@@ -35,14 +35,14 @@ export default function RootLayout({
             <main className="page-shell flex-1 py-8 sm:py-10 md:py-12">
               {children}
             </main>
-            <footer className="border-t border-[var(--border)] py-5">
+            <footer className="app-footer border-t border-[var(--border)] py-5">
               <div className="page-shell flex flex-col items-center justify-between gap-3 sm:flex-row">
-                <p className="text-xs text-[var(--text-faint)]">
-                  GenResolve · Permanent claims · AI consensus
+                <p className="text-xs text-[var(--text-muted)]">
+                  GenResolve · AI-judged claims on GenLayer
                 </p>
-                <div className="flex items-center gap-5 text-xs text-[var(--text-muted)]">
+                <div className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
                   <a
-                    className="transition-colors hover:text-[var(--violet-bright)]"
+                    className="inline-flex min-h-11 items-center px-2 transition-colors hover:text-[var(--violet-bright)]"
                     href="https://genlayer.com"
                     target="_blank"
                     rel="noreferrer"
@@ -50,7 +50,7 @@ export default function RootLayout({
                     GenLayer
                   </a>
                   <a
-                    className="transition-colors hover:text-[var(--violet-bright)]"
+                    className="inline-flex min-h-11 items-center px-2 transition-colors hover:text-[var(--violet-bright)]"
                     href="https://docs.genlayer.com"
                     target="_blank"
                     rel="noreferrer"
@@ -58,7 +58,7 @@ export default function RootLayout({
                     Docs
                   </a>
                   <a
-                    className="transition-colors hover:text-[var(--violet-bright)]"
+                    className="inline-flex min-h-11 items-center px-2 transition-colors hover:text-[var(--violet-bright)]"
                     href="https://studio.genlayer.com"
                     target="_blank"
                     rel="noreferrer"
