@@ -3,56 +3,69 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { WaxSeal, SealMeta } from "@/components/register/WaxSeal";
+import { DocketCard, CustodyList } from "@/components/register/DocketCard";
+import { ClauseList } from "@/components/register/ClauseList";
+import { CustodySpine } from "@/components/register/CustodySpine";
+import { Bench } from "@/components/register/Bench";
+import { ExhibitCard } from "@/components/register/ExhibitCard";
 
 /* -------------------------------------------------------------------------- */
-/* Data                                                                       */
+/* Copy — verbatim from the mockup (design system §7: reuse it)               */
 /* -------------------------------------------------------------------------- */
 
-const PIPELINE = [
+const CLAUSES = [
   {
-    n: "01",
-    title: "Claim submitted",
-    body: "Natural language enters the ledger — clear, checkable, permanent intent.",
+    num: "§1",
+    title: "Evidence-bound",
+    body: "The claim and its sources are fixed before judgment begins — not argued out in free-floating chat.",
   },
   {
-    n: "02",
+    num: "§2",
+    title: "Validator-driven",
+    body: "Independent AI nodes re-run the analysis in isolation and must agree before a verdict is recorded.",
+  },
+  {
+    num: "§3",
+    title: "Permanently recorded",
+    body: "True, False, or Unverifiable is written on-chain with its reasoning and confidence — and stays there.",
+  },
+];
+
+const SPINE_STEPS = [
+  {
+    title: "Claim submitted",
+    body: "Natural language enters the register — clear, checkable, permanent intent.",
+  },
+  {
     title: "Evidence collected",
     body: "Text and links are gathered and bounded for independent review.",
   },
   {
-    n: "03",
     title: "Validators reason",
-    body: "Each AI validator analyzes the claim without sharing intermediate drafts.",
+    body: "Each AI validator analyzes the claim alone, without seeing another's draft.",
   },
   {
-    n: "04",
     title: "Consensus forms",
-    body: "Agreement on verdict (and confidence band) under the Equivalence Principle.",
+    body: "Agreement on the verdict and its confidence band, under the Equivalence Principle.",
   },
   {
-    n: "05",
     title: "Verdict sealed",
-    body: "True, False, or Unverifiable written on-chain with reasoning.",
+    body: "True, False, or Unverifiable is written on-chain with its reasoning.",
   },
-] as const;
+];
 
-const VALIDATORS = [
-  { id: "V1", vote: "True", conf: 88, delay: 0 },
-  { id: "V2", vote: "True", conf: 91, delay: 0.35 },
-  { id: "V3", vote: "True", conf: 84, delay: 0.7 },
-  { id: "V4", vote: "True", conf: 79, delay: 1.05 },
-  { id: "V5", vote: "True", conf: 86, delay: 1.4 },
-] as const;
-
-const HERO_STAGES = [
-  { key: "pending", label: "Pending", detail: "Claim accepted on-chain" },
-  { key: "evidence", label: "Evidence", detail: "Fetching linked sources…" },
-  { key: "consensus", label: "Consensus", detail: "Validators agreeing…" },
-  { key: "judged", label: "Judged", detail: "Verdict sealed permanently" },
-] as const;
+const SEATS = [
+  { roman: "JUROR I", verdict: "True", conf: 88 },
+  { roman: "JUROR II", verdict: "True", conf: 91 },
+  { roman: "JUROR III", verdict: "True", conf: 84 },
+  { roman: "JUROR IV", verdict: "True", conf: 79 },
+  { roman: "JUROR V", verdict: "True", conf: 86 },
+];
 
 /* -------------------------------------------------------------------------- */
-/* Hooks                                                                      */
+/* Motion utilities (design §6: 350ms fade + slight rise, respects reduced    */
+/* motion; hero copy paints immediately for LCP)                              */
 /* -------------------------------------------------------------------------- */
 
 function useReducedMotion() {
@@ -82,7 +95,7 @@ function useInView<T extends HTMLElement>(once = true) {
           setVisible(false);
         }
       },
-      { threshold: 0.22, rootMargin: "0px 0px -8% 0px" }
+      { threshold: 0.12, rootMargin: "0px 0px -4% 0px" }
     );
     io.observe(el);
     return () => io.disconnect();
@@ -90,226 +103,134 @@ function useInView<T extends HTMLElement>(once = true) {
   return { ref, visible };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Small UI pieces                                                            */
-/* -------------------------------------------------------------------------- */
-
 function Reveal({
   children,
   className,
   delay = 0,
   active = true,
+  priority = false,
 }: {
   children: ReactNode;
   className?: string;
   delay?: number;
   active?: boolean;
+  priority?: boolean;
 }) {
-  // Defer is-in one frame so CSS transitions run on first paint.
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(priority);
   useEffect(() => {
     if (!active) {
-      setReady(false);
+      if (!priority) setReady(false);
+      return;
+    }
+    if (priority) {
+      setReady(true);
       return;
     }
     const id = requestAnimationFrame(() => setReady(true));
     return () => cancelAnimationFrame(id);
-  }, [active]);
+  }, [active, priority]);
 
   return (
     <div
-      className={cn("infra-reveal", ready && active && "is-in", className)}
-      style={{ transitionDelay: ready && active ? `${delay}ms` : "0ms" }}
+      className={cn(
+        "infra-reveal",
+        priority && "infra-reveal--priority",
+        ready && active && "is-in",
+        className
+      )}
+      style={{ transitionDelay: ready && active && !priority ? `${delay}ms` : "0ms" }}
     >
       {children}
     </div>
   );
 }
 
-function SectionLabel({ children }: { children: ReactNode }) {
-  return <p className="infra-label">{children}</p>;
-}
-
-/** Consistent outline icons for Why cards (explicit attrs for reliable SVG paint) */
-function WhyIcon({ kind }: { kind: "evidence" | "validators" | "recorded" }) {
-  if (kind === "evidence") {
-    // Shield-check — evidence-bound / verified sources
-    return (
-      <svg
-        className="infra-why-svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        <path
-          d="M12 3.25 5.5 5.75v5.4c0 4.05 2.75 7.85 6.5 8.85 3.75-1 6.5-4.8 6.5-8.85v-5.4L12 3.25Z"
-          stroke="currentColor"
-          strokeWidth="1.65"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M9.25 12.1 11.1 14l3.65-3.85"
-          stroke="currentColor"
-          strokeWidth="1.65"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    );
-  }
-
-  if (kind === "validators") {
-    // Network nodes — independent validators
-    return (
-      <svg
-        className="infra-why-svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        <circle cx="12" cy="6.25" r="2.35" stroke="currentColor" strokeWidth="1.65" />
-        <circle cx="5.75" cy="17.25" r="2.35" stroke="currentColor" strokeWidth="1.65" />
-        <circle cx="18.25" cy="17.25" r="2.35" stroke="currentColor" strokeWidth="1.65" />
-        <path
-          d="M10.15 7.85 7.15 15.15M13.85 7.85l3 7.3M8 17.25h8"
-          stroke="currentColor"
-          strokeWidth="1.65"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-
-  // Lock / seal — permanently recorded on-chain
-  return (
-    <svg
-      className="infra-why-svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <rect
-        x="5.5"
-        y="10.5"
-        width="13"
-        height="9.5"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.65"
-      />
-      <path
-        d="M8.25 10.5V8.1a3.75 3.75 0 0 1 7.5 0v2.4"
-        stroke="currentColor"
-        strokeWidth="1.65"
-        strokeLinecap="round"
-      />
-      <circle cx="12" cy="15.1" r="1.15" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
 /* -------------------------------------------------------------------------- */
-/* Hero live panel                                                            */
+/* Hero docket — the live resolution stage machine, ported into the           */
+/* docket card. Live behavior preserved: stages cycle, verdict seal appears   */
+/* at the final stage, reduced-motion jumps to sealed.                        */
 /* -------------------------------------------------------------------------- */
 
-function HeroLivePanel({ reduceMotion }: { reduceMotion: boolean }) {
-  const [stage, setStage] = useState(0);
+const DOCKET_STAGES = [
+  { title: "Claim accepted", sub: "Entered the register on-chain" },
+  { title: "Evidence gathered", sub: "Sources fetched and bounded" },
+  { title: "Consensus reached", sub: "5 of 5 validators agree" },
+  { title: "Verdict sealed", sub: "Written permanently, with reasoning" },
+];
+
+function HeroDocket({
+  reduceMotion,
+  active,
+  playOnce,
+}: {
+  reduceMotion: boolean;
+  active: boolean;
+  playOnce: boolean;
+}) {
+  const [stage, setStage] = useState(reduceMotion ? 3 : 0);
 
   useEffect(() => {
     if (reduceMotion) {
       setStage(3);
       return;
     }
-    setStage(0);
-    const timers = [
-      window.setTimeout(() => setStage(1), 1400),
-      window.setTimeout(() => setStage(2), 2800),
-      window.setTimeout(() => setStage(3), 4400),
-    ];
-    const loop = window.setInterval(() => {
-      setStage(0);
-      window.setTimeout(() => setStage(1), 1400);
-      window.setTimeout(() => setStage(2), 2800);
-      window.setTimeout(() => setStage(3), 4400);
-    }, 7000);
-    return () => {
-      timers.forEach(clearTimeout);
-      clearInterval(loop);
+    if (!active) return;
+
+    let cancelled = false;
+    const timers = new Set<number>();
+    const later = (fn: () => void, ms: number) => {
+      const id = window.setTimeout(() => {
+        timers.delete(id);
+        if (!cancelled) fn();
+      }, ms);
+      timers.add(id);
     };
-  }, [reduceMotion]);
+
+    const sequence = () => {
+      setStage(0);
+      later(() => setStage(1), 1600);
+      later(() => setStage(2), 3400);
+      later(() => setStage(3), 5400);
+      if (!playOnce) later(sequence, 11_000);
+    };
+
+    sequence();
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+  }, [reduceMotion, active, playOnce]);
+
+  const custody = DOCKET_STAGES.map((s, i) => ({
+    ...s,
+    state: (i < stage ? "done" : i === stage ? "active" : "pending") as
+      | "done"
+      | "active"
+      | "pending",
+  }));
 
   return (
-    <div className="infra-live-panel" aria-live="polite">
-      <div className="infra-live-top">
-        <span className="infra-live-dot" />
-        <span className="mono text-[11px] text-[var(--text-muted)]">
-          Live resolution path
-        </span>
-        <span className="mono text-[11px] text-[var(--text-faint)] ml-auto">
-          #1042
-        </span>
-      </div>
-
-      <p className="infra-live-claim">
+    <DocketCard headLeft="Live resolution" headRight="Docket #1042">
+      <p className="docket-quote">
         “GenLayer validators use an Optimistic Democracy consensus model.”
       </p>
-
-      <div className="infra-live-stages">
-        {HERO_STAGES.map((s, i) => {
-          const done = i < stage;
-          const active = i === stage;
-          return (
-            <div
-              key={s.key}
-              className={cn(
-                "infra-live-stage",
-                done && "is-done",
-                active && "is-active"
-              )}
-            >
-              <span className="infra-live-stage-mark" aria-hidden />
-              <div>
-                <div className="infra-live-stage-label">{s.label}</div>
-                <div className="infra-live-stage-detail">
-                  {active || done ? s.detail : "—"}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div
-        className={cn(
-          "infra-live-result",
-          stage === 3 && "is-sealed"
-        )}
-      >
+      <CustodyList items={custody} />
+      <div className="seal-row">
         {stage === 3 ? (
           <>
-            <span className="badge badge-true badge-lg">
-              <span className="badge-icon">✓</span> True
-            </span>
-            <span className="mono text-xs text-[var(--text-muted)]">
-              Confidence 87% · sealed
-            </span>
+            <WaxSeal verdict="true" label="True" />
+            <SealMeta
+              title="Sealed at 87% confidence"
+              sub="Reasoning attached · no silent rewrite possible"
+            />
           </>
         ) : (
-          <span className="text-xs text-[var(--text-faint)]">
+          <span className="mono text-xs text-[var(--text-faint)]">
             Awaiting finality…
           </span>
         )}
       </div>
-    </div>
+    </DocketCard>
   );
 }
 
@@ -319,19 +240,15 @@ function HeroLivePanel({ reduceMotion }: { reduceMotion: boolean }) {
 
 export default function LandingPage() {
   const reduceMotion = useReducedMotion();
-  const stageRef = useRef<HTMLDivElement>(null);
-  /** Tab hidden → pause any residual ambient CSS. */
   const [pageVisible, setPageVisible] = useState(true);
-  /** Low-power / mobile / save-data → static atmosphere only. */
-  const [liteAmbient, setLiteAmbient] = useState(false);
+  const [playOnce, setPlayOnce] = useState(false);
 
   const why = useInView<HTMLElement>();
-  const pipeline = useInView<HTMLElement>();
-  const mesh = useInView<HTMLElement>();
-  const finality = useInView<HTMLElement>();
+  const custody = useInView<HTMLElement>();
+  const bench = useInView<HTMLElement>();
+  const sealed = useInView<HTMLElement>();
   const cta = useInView<HTMLElement>();
-
-  const [pipeActive, setPipeActive] = useState(0);
+  const heroDocket = useInView<HTMLDivElement>(false);
 
   useEffect(() => {
     const onVis = () => setPageVisible(document.visibilityState === "visible");
@@ -341,25 +258,11 @@ export default function LandingPage() {
   }, []);
 
   useEffect(() => {
-    // Prefer static atmosphere on constrained devices (real mobile perf win).
     const coarse = window.matchMedia("(hover: none) and (pointer: coarse)");
     const narrow = window.matchMedia("(max-width: 767px)");
-    const saveData =
-      typeof navigator !== "undefined" &&
-      "connection" in navigator &&
-      Boolean(
-        (navigator as Navigator & { connection?: { saveData?: boolean } })
-          .connection?.saveData
-      );
-    const cores =
-      typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 8 : 8;
     const update = () => {
-      setLiteAmbient(
-        reduceMotion ||
-          coarse.matches ||
-          narrow.matches ||
-          saveData ||
-          cores <= 4
+      setPlayOnce(
+        reduceMotion || coarse.matches || narrow.matches
       );
     };
     update();
@@ -371,320 +274,170 @@ export default function LandingPage() {
     };
   }, [reduceMotion]);
 
-  useEffect(() => {
-    if (!pipeline.visible) return;
-    if (reduceMotion) {
-      setPipeActive(PIPELINE.length);
-      return;
-    }
-    setPipeActive(0);
-    const ids: number[] = [];
-    PIPELINE.forEach((_, i) => {
-      ids.push(window.setTimeout(() => setPipeActive(i + 1), 280 + i * 420));
-    });
-    return () => ids.forEach(clearTimeout);
-  }, [pipeline.visible, reduceMotion]);
-
   return (
-    <div
-      ref={stageRef}
-      className={cn(
-        "infra-landing infra-landing--bleed",
-        !pageVisible && "infra-landing--paused",
-        (reduceMotion || liteAmbient) && "infra-landing--static"
-      )}
-    >
-      {/*
-        Single paint layer atmosphere (no child blobs, no blur filters,
-        no pointer parallax, no full-viewport mask animation).
-      */}
-      <div className="infra-aurora" aria-hidden />
-
-      {/* ─── HERO: open left copy + framed live panel only ─── */}
-      <section className="infra-hero">
-        <div className="page-shell infra-hero-inner">
-          <div className="infra-hero-grid">
-            {/* Left: no card / no shell — open on background */}
-            <div className="infra-hero-copy">
-              <Reveal active delay={80}>
-                <SectionLabel>GenLayer-native resolution</SectionLabel>
-              </Reveal>
-              <Reveal active delay={180}>
-                <h1 className="infra-hero-title">
-                  Claims enter as language.
-                  <br />
-                  <span className="infra-hero-accent">
-                    They leave as consensus.
-                  </span>
-                </h1>
-              </Reveal>
-              <Reveal active delay={320}>
-                <p className="infra-hero-lede">
-                  GenResolve turns natural-language claims into permanent
-                  on-chain verdicts — through evidence, independent AI
-                  validators, and cryptographic finality.
-                </p>
-              </Reveal>
-              <Reveal active delay={460}>
-                <div className="infra-hero-ctas">
-                  <Link href="/create" className="landing-cta-primary">
-                    Create first claim
-                  </Link>
-                  <Link href="/home" className="landing-cta-secondary">
-                    Open app
-                  </Link>
-                </div>
-              </Reveal>
-              <Reveal active delay={580}>
-                <p className="infra-hero-meta mono">
-                  Studionet · Bradbury · Equivalence Principle
-                </p>
-              </Reveal>
+    <div className="pb-4">
+      {/* ─── HERO: open copy + live docket ─── */}
+      <section className="hero" aria-labelledby="hero-heading">
+        <div>
+          <Reveal priority active>
+            <p className="eyebrow">GenLayer Public Register · No. 001042</p>
+          </Reveal>
+          <Reveal priority active>
+            <h1 id="hero-heading">
+              Claims enter as language.
+              <span className="dim">They leave under seal.</span>
+            </h1>
+          </Reveal>
+          <Reveal priority active>
+            <p className="lede">
+              GenResolve records a claim, gathers its evidence, and lets
+              independent AI validators reach a verdict — True, False, or
+              Unverifiable — sealed permanently on-chain.
+            </p>
+          </Reveal>
+          <Reveal priority active>
+            <div className="ctarow">
+              <Link href="/create" className="btn btn-primary btn-lg min-h-11">
+                File a claim
+              </Link>
+              <Link href="/home" className="btn btn-secondary btn-lg min-h-11">
+                Open the register
+              </Link>
             </div>
-
-            {/* Right: only framed surface */}
-            <Reveal active delay={400} className="infra-hero-panel-wrap">
-              <HeroLivePanel reduceMotion={reduceMotion} />
-            </Reveal>
-          </div>
+          </Reveal>
+          <Reveal priority active>
+            <p className="meta">
+              GenLayer testnets — Studionet &amp; Bradbury · verdicts sealed
+              on-chain, never rewritten
+            </p>
+          </Reveal>
         </div>
-      </section>
 
-      {/* ─── WHY ─── */}
-      <section
-        ref={why.ref}
-        className="page-shell infra-section infra-section--why"
-        aria-labelledby="why-heading"
-      >
-        <Reveal active={why.visible} delay={0}>
-          <SectionLabel>Why it exists</SectionLabel>
-        </Reveal>
-        <Reveal active={why.visible} delay={100}>
-          <h2 id="why-heading" className="infra-h2">
-            A single model answer is not a verdict.
-          </h2>
-        </Reveal>
-        <div className="infra-why-grid">
-          {(
-            [
-              {
-                title: "Evidence-bound",
-                body: "Claims and sources are fixed before judgment — not free-floating chat.",
-                icon: "evidence" as const,
-              },
-              {
-                title: "Validator-driven",
-                body: "Independent AI nodes re-run the analysis and must agree on the decision.",
-                icon: "validators" as const,
-              },
-              {
-                title: "Permanently recorded",
-                body: "True, False, or Unverifiable lands on-chain with reasoning and confidence.",
-                icon: "recorded" as const,
-              },
-            ] as const
-          ).map((card, i) => (
-            <Reveal
-              key={card.title}
-              active={why.visible}
-              delay={180 + i * 100}
-            >
-              <div className="infra-why-card">
-                <div className="infra-why-icon" aria-hidden>
-                  <WhyIcon kind={card.icon} />
-                </div>
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </section>
-
-      {/* ─── PIPELINE ─── */}
-      <section
-        ref={pipeline.ref}
-        className="page-shell infra-section infra-section--pipeline"
-        aria-labelledby="pipe-heading"
-      >
-        <Reveal active={pipeline.visible}>
-          <SectionLabel>Resolution pipeline</SectionLabel>
-        </Reveal>
-        <Reveal active={pipeline.visible} delay={80}>
-          <h2 id="pipe-heading" className="infra-h2">
-            From language to sealed consensus
-          </h2>
-        </Reveal>
-
-        <div className="infra-pipeline">
-          <div className="infra-pipeline-track" aria-hidden>
-            <div
-              className="infra-pipeline-fill"
-              style={{
-                width: reduceMotion
-                  ? "100%"
-                  : `${Math.min(100, (pipeActive / PIPELINE.length) * 100)}%`,
-              }}
+        <Reveal active delay={120} className="max-w-[480px] justify-self-end w-full">
+          <div ref={heroDocket.ref}>
+            <HeroDocket
+              reduceMotion={reduceMotion}
+              active={pageVisible && (heroDocket.visible || playOnce)}
+              playOnce={playOnce}
             />
           </div>
-          <ol className="infra-pipeline-steps">
-            {PIPELINE.map((step, i) => {
-              const on = pipeActive > i;
-              return (
-                <li
-                  key={step.n}
-                  className={cn("infra-pipe-step", on && "is-on")}
-                >
-                  <div className="infra-pipe-n">{step.n}</div>
-                  <h3>{step.title}</h3>
-                  <p>{step.body}</p>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
+        </Reveal>
       </section>
 
-      {/* ─── VALIDATOR MESH ─── */}
+      {/* ─── WHY IT EXISTS — clause list ─── */}
       <section
-        ref={mesh.ref}
-        className="page-shell infra-section infra-section--mesh"
-        aria-labelledby="mesh-heading"
+        ref={why.ref}
+        className="section"
+        aria-labelledby="why-heading"
       >
-        <Reveal active={mesh.visible}>
-          <SectionLabel>Validator mesh</SectionLabel>
-        </Reveal>
-        <Reveal active={mesh.visible} delay={80}>
-          <h2 id="mesh-heading" className="infra-h2">
-            Independent minds. One decision field.
-          </h2>
-        </Reveal>
-        <Reveal active={mesh.visible} delay={140}>
-          <p className="infra-section-lede">
-            Each validator reasons in isolation. Consensus forms when verdicts
-            match and confidence stays within tolerance — not when a leader is
-            trusted alone.
-          </p>
-        </Reveal>
-
-        <div
-          className={cn("infra-mesh", mesh.visible && "is-live")}
-          aria-hidden={!mesh.visible}
-        >
-          <div className="infra-mesh-core">
-            <span className="infra-mesh-core-label">Claim</span>
-            <span className="infra-mesh-core-sub mono">#1042</span>
-          </div>
-          <ul className="infra-mesh-nodes">
-            {VALIDATORS.map((v, i) => (
-              <li
-                key={v.id}
-                className="infra-mesh-node"
-                style={{
-                  // stagger report-in
-                  animationDelay: mesh.visible
-                    ? `${0.4 + v.delay}s`
-                    : undefined,
-                  ["--i" as string]: i,
-                }}
-              >
-                <div className="infra-mesh-node-id mono">{v.id}</div>
-                <div className="infra-mesh-node-vote">{v.vote}</div>
-                <div className="infra-mesh-node-conf mono">{v.conf}%</div>
-                <div className="infra-mesh-pulse" />
-              </li>
-            ))}
-          </ul>
-          <div className="infra-mesh-legend mono">
-            5 / 5 reported · verdict agreement · confidence band OK
-          </div>
+        <div className="section-head">
+          <Reveal active={why.visible}>
+            <p className="eyebrow">The case for a hearing</p>
+          </Reveal>
+          <Reveal active={why.visible} delay={80}>
+            <h2 id="why-heading">A single model&apos;s answer isn&apos;t a verdict.</h2>
+          </Reveal>
         </div>
+        <Reveal active={why.visible} delay={120}>
+          <ClauseList clauses={CLAUSES} />
+        </Reveal>
       </section>
 
-      {/* ─── FINALITY ─── */}
+      {/* ─── CHAIN OF CUSTODY — spine ─── */}
       <section
-        ref={finality.ref}
-        className="page-shell infra-section infra-section--finality"
-        aria-labelledby="finality-heading"
+        ref={custody.ref}
+        className="section"
+        aria-labelledby="custody-heading"
       >
-        <Reveal active={finality.visible}>
-          <SectionLabel>Consensus & finality</SectionLabel>
-        </Reveal>
-        <Reveal active={finality.visible} delay={80}>
-          <h2 id="finality-heading" className="infra-h2">
-            Irreversible once sealed
-          </h2>
-        </Reveal>
-
-        <Reveal active={finality.visible} delay={160}>
-          <div
-            className={cn(
-              "infra-finality",
-              finality.visible && "is-sealed"
-            )}
-          >
-            <div className="infra-finality-head">
-              <span className="badge badge-true badge-lg">
-                <span className="badge-icon">✓</span> True
-              </span>
-              <span className="badge badge-judged">
-                <span className="badge-icon">◆</span> Judged
-              </span>
-            </div>
-            <p className="infra-finality-claim">
-              “GenLayer validators use an Optimistic Democracy consensus model.”
-            </p>
-            <div className="infra-finality-conf">
-              <div className="flex justify-between text-xs text-[var(--text-muted)]">
-                <span>Confidence</span>
-                <span className="tabular-nums text-[var(--text)] font-semibold">
-                  87%
-                </span>
-              </div>
-              <div className="confidence-track mt-2">
-                <div
-                  className="confidence-fill infra-conf-anim"
-                  style={{ width: finality.visible || reduceMotion ? "87%" : "0%" }}
-                />
-              </div>
-            </div>
-            <div className="infra-finality-reason">
-              <p className="section-label">Reasoning</p>
-              <p>
-                Independent validators concur the claim matches documented
-                protocol design; sources support the consensus model description.
-              </p>
-            </div>
-            <p className="infra-finality-foot mono">
-              On-chain · permanent · no silent rewrite
-            </p>
+        <div className="section-head">
+          <Reveal active={custody.visible}>
+            <p className="eyebrow">Chain of custody</p>
+          </Reveal>
+          <Reveal active={custody.visible} delay={80}>
+            <h2 id="custody-heading">From language to sealed judgment</h2>
+          </Reveal>
+        </div>
+        <Reveal active={custody.visible} delay={120}>
+          <div className="max-w-2xl">
+            <CustodySpine steps={SPINE_STEPS} />
           </div>
+        </Reveal>
+      </section>
+
+      {/* ─── THE BENCH ─── */}
+      <section
+        ref={bench.ref}
+        className="section"
+        aria-labelledby="bench-heading"
+      >
+        <div className="bench-intro section-head">
+          <Reveal active={bench.visible}>
+            <p className="eyebrow">The bench</p>
+          </Reveal>
+          <Reveal active={bench.visible} delay={80}>
+            <h2 id="bench-heading">Independent minds. One decision.</h2>
+          </Reveal>
+          <Reveal active={bench.visible} delay={140}>
+            <p>
+              Each validator reasons alone. Consensus forms when verdicts match
+              and confidence stays within tolerance — not when one voice is
+              trusted over the rest.
+            </p>
+          </Reveal>
+        </div>
+        <Reveal active={bench.visible} delay={180}>
+          <Bench
+            seats={SEATS}
+            foot="5 / 5 reported · verdict agreement · confidence band OK"
+          />
+        </Reveal>
+      </section>
+
+      {/* ─── ONCE SEALED — exhibit ─── */}
+      <section
+        ref={sealed.ref}
+        className="section"
+        aria-labelledby="sealed-heading"
+      >
+        <div className="section-head">
+          <Reveal active={sealed.visible}>
+            <p className="eyebrow">Once sealed</p>
+          </Reveal>
+          <Reveal active={sealed.visible} delay={80}>
+            <h2 id="sealed-heading">Irreversible by design</h2>
+          </Reveal>
+        </div>
+        <Reveal active={sealed.visible} delay={160}>
+          <ExhibitCard
+            verdict="true"
+            sealLabel="True"
+            ring="DOCKET 1042 · GENRESOLVE ·"
+            tags={["Judged", "Docket #1042"]}
+            quote="GenLayer validators use an Optimistic Democracy consensus model."
+            confidence={87}
+            reasoning="Independent validators concur the claim matches documented protocol design; the cited sources support the consensus-model description."
+            foot="ON-CHAIN · PERMANENT · NO SILENT REWRITE"
+          />
         </Reveal>
       </section>
 
       {/* ─── FINAL CTA ─── */}
-      <section
-        ref={cta.ref}
-        className="page-shell infra-section infra-section--cta infra-cta-band-wrap"
-      >
+      <section ref={cta.ref} aria-labelledby="cta-heading">
         <Reveal active={cta.visible}>
-          <div className="infra-cta-band">
+          <div className="ctaband">
             <div>
-              <SectionLabel>Begin</SectionLabel>
-              <h2 className="infra-h2 mt-2">
-                Turn a claim into consensus.
-              </h2>
-              <p className="infra-section-lede !mt-3 !mb-0">
-                Submit language. Attach evidence. Let validators seal the
+              <h2 id="cta-heading">Turn a claim into judgment.</h2>
+              <p>
+                Submit language. Attach evidence. Let the bench seal the
                 outcome.
               </p>
             </div>
-            <div className="infra-cta-band-actions">
-              <Link href="/create" className="landing-cta-primary">
-                Create claim
+            <div className="ctas">
+              <Link href="/create" className="btn btn-primary btn-lg min-h-11">
+                File a claim
               </Link>
-              <Link href="/claims" className="landing-cta-secondary">
-                Browse ledger
+              <Link href="/claims" className="btn btn-secondary btn-lg min-h-11">
+                Browse the register
               </Link>
             </div>
           </div>

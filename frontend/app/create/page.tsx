@@ -2,40 +2,29 @@
 
 import { useWallet } from "@/lib/genlayer/WalletProvider";
 import { CreateClaimForm } from "@/components/CreateClaimForm";
-import { ConfigAlert, InfoAlert } from "@/components/ErrorAlert";
+import { ConfigAlert } from "@/components/ErrorAlert";
 
 export default function CreateClaimPage() {
-  const { network, contractAddress, isConnected } = useWallet();
+  const { network, contractAddress } = useWallet();
 
   return (
-    <div className="mx-auto max-w-xl space-y-7 page-section">
-      <div>
-        <p className="eyebrow">New entry</p>
-        <h1 className="display-title mt-2 text-2xl sm:text-3xl">
-          Create claim
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-[var(--text-muted)] max-w-md">
-          One primary statement for{" "}
-          <span className="text-[var(--text-secondary)]">{network.shortName}</span>
-          . Optional evidence and stake. Judgment is triggered from the claim
-          page after creation.
-        </p>
-      </div>
+    <div className="formwrap page-section">
+      <p className="eyebrow">New entry</p>
+      <h1>File a claim</h1>
+      <p className="sub">
+        One primary statement for{" "}
+        <span className="text-[var(--text)]">{network.shortName}</span>.
+        Evidence and stake are optional. Judgment starts automatically once the
+        claim is on the register (you can retry manually on the claim page if
+        needed).
+      </p>
 
       {!contractAddress && <ConfigAlert networkName={network.shortName} />}
 
-      {!isConnected && (
-        <InfoAlert
-          title="Wallet not connected"
-          message="You can draft the form first. Connect MetaMask or Rabby to submit."
-        />
-      )}
-
       <CreateClaimForm />
 
-      <p className="text-xs leading-relaxed text-[var(--text-faint)] px-0.5">
-        Limits: claim ≤ 2,000 characters · evidence ≤ 8,000 · stake is
-        non-refundable in this MVP.
+      <p className="limits">
+        LIMITS · CLAIM ≤ 2,000 CHARACTERS · EVIDENCE ≤ 8,000 CHARACTERS
       </p>
     </div>
   );

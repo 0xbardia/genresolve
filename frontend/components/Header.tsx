@@ -16,14 +16,18 @@ export function Header() {
   const pathname = usePathname();
   const isLanding = pathname === "/";
 
+  const isActive = (href: string) =>
+    href === "/home" ? pathname === "/home" : pathname.startsWith(href);
+
   return (
     <header className="app-header">
       <div className="page-shell">
-        <div className="flex min-h-[var(--header-h)] items-center justify-between gap-3 py-2.5">
-          <div className="flex min-w-0 items-center gap-5">
+        <div className="topnav">
+          <div className="flex min-w-0 items-center gap-6">
             <Link
               href={isLanding ? "/" : "/home"}
-              className="group flex items-center gap-2.5 shrink-0"
+              className="group flex items-center gap-2.5 shrink-0 min-h-11"
+              aria-label={isLanding ? "GenResolve home" : "GenResolve dashboard"}
             >
               <span className="brand-mark transition-transform duration-200 group-hover:scale-[1.03]">
                 GR
@@ -34,34 +38,31 @@ export function Header() {
             </Link>
 
             {!isLanding && (
-              <nav className="nav-pill" aria-label="Primary">
-                {NAV.map((item) => {
-                  const active =
-                    item.href === "/home"
-                      ? pathname === "/home"
-                      : pathname.startsWith(item.href);
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="nav-link"
-                      data-active={active ? "true" : "false"}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })}
+              <nav className="navlinks" aria-label="Primary">
+                {NAV.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="nav-link"
+                    data-active={isActive(item.href) ? "true" : "false"}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
               </nav>
             )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
             {isLanding ? (
               <>
-                <Link href="/home" className="btn btn-ghost btn-sm hidden sm:inline-flex">
+                <Link
+                  href="/home"
+                  className="btn btn-secondary btn-sm min-h-11 hidden sm:inline-flex"
+                >
                   Open app
                 </Link>
-                <Link href="/create" className="btn btn-primary btn-sm">
+                <Link href="/create" className="btn btn-primary btn-sm min-h-11">
                   Create claim
                 </Link>
               </>
@@ -77,18 +78,15 @@ export function Header() {
         {!isLanding && (
           <nav className="mobile-nav pb-2.5" aria-label="Mobile">
             {NAV.map((item) => {
-              const active =
-                item.href === "/home"
-                  ? pathname === "/home"
-                  : pathname.startsWith(item.href);
+              const active = isActive(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "rounded-full px-3.5 py-1.5 text-sm font-medium shrink-0 border border-transparent",
+                    "rounded-[3px] px-3.5 py-2.5 min-h-11 text-sm font-medium shrink-0 border border-transparent inline-flex items-center",
                     active
-                      ? "bg-[rgba(139,124,246,0.14)] text-[var(--violet-bright)] border-[rgba(139,124,246,0.22)]"
+                      ? "bg-[rgba(201,162,39,0.12)] text-[var(--violet-bright)] border-[rgba(201,162,39,0.3)] font-semibold"
                       : "text-[var(--text-muted)]"
                   )}
                 >

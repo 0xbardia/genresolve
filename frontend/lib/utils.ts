@@ -12,6 +12,40 @@ export function shortAddress(address: string | null | undefined, chars = 4): str
   return `${address.slice(0, chars + 2)}…${address.slice(-chars)}`;
 }
 
+/**
+ * Human-readable timestamp for lists/detail.
+ * Accepts ISO-8601 (contract) or numeric unix seconds/ms. Falls back to raw string.
+ */
+export function formatDisplayDate(
+  value: string | number | null | undefined
+): string {
+  if (value === null || value === undefined || value === "") return "—";
+
+  let date: Date;
+  if (typeof value === "number") {
+    date = new Date(value > 1e12 ? value : value * 1000);
+  } else {
+    const trimmed = value.trim();
+    if (/^\d+$/.test(trimmed)) {
+      const n = Number(trimmed);
+      date = new Date(n > 1e12 ? n : n * 1000);
+    } else {
+      date = new Date(trimmed);
+    }
+  }
+
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date);
+  } catch {
+    return date.toLocaleString();
+  }
+}
+
 /** Parse user-entered GEN amount to wei (bigint). Empty → 0n */
 export function parseGenToWei(amount: string): bigint {
   const trimmed = amount.trim();

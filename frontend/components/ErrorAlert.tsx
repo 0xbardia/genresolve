@@ -6,9 +6,9 @@ export function ErrorAlert({
   message: string;
 }) {
   return (
-    <div className="alert alert-error" role="alert">
+    <div className="alert alert-error" role="alert" aria-live="assertive">
       <div className="alert-title">{title}</div>
-      <div className="whitespace-pre-wrap opacity-95">{message}</div>
+      <div className="whitespace-pre-wrap">{message}</div>
     </div>
   );
 }

@@ -2,152 +2,144 @@
 
 import Link from "next/link";
 import { useWallet } from "@/lib/genlayer/WalletProvider";
-import { useClaimCount, useClaims, useOwner } from "@/lib/hooks/useGenResolve";
-import { ClaimCard } from "@/components/ClaimCard";
-import { ConfigAlert } from "@/components/ErrorAlert";
+import { useClaimCount, useClaims } from "@/lib/hooks/useGenResolve";
+import { ClaimEntryRow } from "@/components/register/ClaimEntryRow";
+import { LedgerStrip } from "@/components/register/LedgerStrip";
+import { ConfigAlert, ErrorAlert } from "@/components/ErrorAlert";
 import {
   ClaimListSkeleton,
   EmptyState,
 } from "@/components/LoadingSpinner";
-import { shortAddress } from "@/lib/utils";
+import { getErrorMessage, shortAddress } from "@/lib/utils";
 
 export default function HomePage() {
-  const { network, contractAddress, isConnected, address } = useWallet();
+  const {
+    network,
+    contractAddress,
+    isConnected,
+    address,
+    connectWallet,
+  } = useWallet();
   const { data: count, isLoading: countLoading } = useClaimCount();
-  const { data: claims, isLoading: claimsLoading } = useClaims(0, 5);
-  const { data: owner } = useOwner();
+  const {
+    data: claims,
+    isLoading: claimsLoading,
+    isError: claimsError,
+    error: claimsErr,
+    refetch: refetchClaims,
+    isFetching: claimsFetching,
+  } = useClaims(0, 5);
 
   return (
-    <div className="space-y-12 sm:space-y-14">
-      <section className="page-section relative overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-strong)] bg-[var(--bg-1)] px-6 py-10 sm:px-10 sm:py-12">
-        <div
-          className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-[rgba(139,124,246,0.12)] blur-3xl"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -bottom-20 left-1/3 h-40 w-40 rounded-full bg-[rgba(95,216,208,0.08)] blur-3xl"
-          aria-hidden
-        />
-
-        <div className="relative z-[1] max-w-xl">
-          <p className="eyebrow">On-chain AI consensus</p>
-          <h1 className="display-title mt-3 text-[1.85rem] sm:text-4xl">
-            Claims judged by{" "}
-            <span className="gradient-text">intelligent consensus</span>
-          </h1>
-          <p className="lede mt-4">
-            Submit natural-language claims. GenLayer validators evaluate
-            evidence and permanently record True, False, or Unverifiable —
-            with reasoning and confidence.
-          </p>
-          <div className="mt-7 flex flex-wrap gap-2.5">
-            <Link href="/create" className="btn btn-primary btn-lg">
-              Submit a claim
-            </Link>
-            <Link href="/claims" className="btn btn-secondary btn-lg">
-              Browse ledger
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {!contractAddress && (
-        <section className="page-section page-section-delay-1">
-          <ConfigAlert networkName={network.shortName} />
-        </section>
-      )}
-
-      <section className="page-section page-section-delay-1 grid gap-3 sm:grid-cols-3">
-        <div className="glass-card stat-card">
-          <div className="stat-label">Network</div>
-          <div className="stat-value text-base sm:text-lg flex items-center gap-2">
-            <span className="live-dot" />
-            {network.shortName}
-          </div>
-          <div className="stat-meta">
-            Chain {network.chainId} · {network.currency.symbol}
-          </div>
-        </div>
-        <div className="glass-card stat-card">
-          <div className="stat-label">Total claims</div>
-          <div className="stat-value tabular-nums">
-            {countLoading ? "—" : (count ?? 0)}
-          </div>
-          <div className="stat-meta">Permanent ledger entries</div>
-        </div>
-        <div className="glass-card stat-card">
-          <div className="stat-label">Wallet</div>
-          <div className="stat-value mono text-sm sm:text-base">
-            {isConnected ? shortAddress(address, 6) : "Not connected"}
-          </div>
-          <div className="stat-meta">
-            {owner
-              ? `Owner ${shortAddress(owner, 4)}`
-              : isConnected
-                ? "Ready to transact"
-                : "Connect to create or judge"}
-          </div>
-        </div>
-      </section>
-
-      <section className="page-section page-section-delay-2">
-        <div className="mb-4">
-          <p className="eyebrow">Process</p>
-          <h2 className="display-title mt-2 text-xl sm:text-2xl">
-            How it works
-          </h2>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          {[
-            {
-              step: "01",
-              title: "Submit",
-              body: "Write a claim, attach optional evidence, stake GEN if you wish.",
-            },
-            {
-              step: "02",
-              title: "Judge",
-              body: "Trigger AI consensus. Validators re-run analysis under the Equivalence Principle.",
-            },
-            {
-              step: "03",
-              title: "Record",
-              body: "Verdict, reasoning, and confidence are stored permanently on-chain.",
-            },
-          ].map((item) => (
-            <div key={item.step} className="glass-card p-5">
-              <div className="text-[11px] font-semibold tracking-[0.12em] text-[var(--violet-bright)]">
-                {item.step}
-              </div>
-              <h3 className="mt-2 text-[0.95rem] font-semibold text-[var(--text)]">
-                {item.title}
-              </h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-[var(--text-muted)]">
-                {item.body}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="page-section page-section-delay-3 space-y-4">
-        <div className="flex items-end justify-between gap-3">
+    <div className="space-y-10">
+      {/* App head */}
+      <div className="app-head">
+        <div className="title-row">
           <div>
-            <p className="eyebrow">Ledger</p>
-            <h2 className="display-title mt-2 text-xl sm:text-2xl">
-              Recent claims
-            </h2>
+            <p className="eyebrow">Dashboard</p>
+            <h1 className="mt-2">Home</h1>
+            <p className="sub">
+              {network.shortName}
+              {typeof count === "number" ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="tabular-nums text-[var(--text)]">
+                    {count}
+                  </span>{" "}
+                  claims recorded on this network
+                </>
+              ) : null}
+            </p>
           </div>
-          <Link
-            href="/claims"
-            className="btn btn-ghost btn-sm text-[var(--violet-bright)]"
-          >
-            View all →
-          </Link>
+          <div className="actions">
+            <Link href="/create" className="btn btn-primary min-h-11">
+              New claim
+            </Link>
+            <Link href="/claims" className="btn btn-secondary min-h-11">
+              Browse claims
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {!contractAddress && <ConfigAlert networkName={network.shortName} />}
+
+      {/* Ledger strip — one bordered strip, not three cards */}
+      <LedgerStrip
+        cells={[
+          {
+            k: "Network",
+            v: network.shortName,
+            small: true,
+            dot: true,
+            sub: `Chain ${network.chainId} · ${network.currency.symbol}`,
+          },
+          {
+            k: "Total claims",
+            v: countLoading ? "—" : (count ?? 0),
+            sub: "Recorded on this network",
+          },
+          {
+            k: "Wallet",
+            v: isConnected ? shortAddress(address, 6) : "Not connected",
+            small: true,
+            sub: isConnected ? (
+              "Ready to create or judge"
+            ) : (
+              <button
+                type="button"
+                className="min-h-11 inline-flex items-center"
+                onClick={() => void connectWallet().catch(() => {})}
+              >
+                Connect wallet
+              </button>
+            ),
+          },
+        ]}
+      />
+
+      {/* Recent claims */}
+      <section className="page-section space-y-4">
+        <div className="docket-list-head">
+          <h2>Recent claims</h2>
+          <Link href="/claims">View all →</Link>
         </div>
 
-        {!contractAddress ? null : claimsLoading ? (
+        {!contractAddress ? (
+          <EmptyState
+            title="Contract not configured"
+            description={`Set the contract address for ${network.shortName} in your environment to load claims.`}
+            action={
+              <Link href="/create" className="btn btn-secondary">
+                Open create form
+              </Link>
+            }
+          />
+        ) : claimsLoading ? (
           <ClaimListSkeleton />
+        ) : claimsError ? (
+          <div className="space-y-3">
+            <ErrorAlert
+              title="Could not load claims"
+              message={getErrorMessage(claimsErr)}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary min-h-11"
+              onClick={() => void refetchClaims()}
+              disabled={claimsFetching}
+            >
+              {claimsFetching ? (
+                <>
+                  <span className="spinner" aria-hidden />
+                  Retrying…
+                </>
+              ) : (
+                "Retry"
+              )}
+            </button>
+          </div>
         ) : !claims?.length ? (
           <EmptyState
             title="No claims yet"
@@ -159,9 +151,9 @@ export default function HomePage() {
             }
           />
         ) : (
-          <div className="grid gap-3">
-            {claims.map((c) => (
-              <ClaimCard key={c.id} claim={c} />
+          <div className="entries">
+            {claims.map((c, i) => (
+              <ClaimEntryRow key={c.id} claim={c} index={i} />
             ))}
           </div>
         )}
